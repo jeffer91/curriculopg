@@ -1,61 +1,67 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn(){return request.auth != null;}
-    function profile(){return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;}
-    function active(){return signedIn() && profile().activo == true;}
-    function admin(){return active() && profile().rol == "administrador";}
-    function coordinator(){return active() && profile().rol == "coordinador";}
-    function allowedCareer(carreraId){return admin() || (coordinator() && profile().carreraId == carreraId);}
-    match /usuarios/{uid}{
-      allow get: if signedIn() && (request.auth.uid == uid || admin());
+    // No se confía en PIN, parámetros de URL ni campos enviados por el navegador.
+    // Las funciones de Firebase emiten tokens firmados con rol/carrera.
+    function authenticated(){return request.auth != null;}
+    function admin(){
+      return authenticated()
+        && request.auth.uid == "curriculo-admin-pin"
+        && request.auth.token.rol == "administrador";
+    }
+    function coordinatorFor(carreraId){
+      return authenticated()
+        && request.auth.token.rol == "coordinador"
+        && request.auth.token.carreraId == carreraId
+        && exists(/databases/$(database)/documents/enlaces_curriculares/$(carreraId))
+        && get(/databases/$(database)/documents/enlaces_curriculares/$(carreraId)).data.activo == true
+        && get(/databases/$(database)/documents/enlaces_curriculares/$(carreraId)).data.version == request.auth.token.versionEnlace;
+    }
+    function allowedCareer(carreraId){return admin() || coordinatorFor(carreraId);}
+
+    match /carreras/{id}{
+      allow get: if allowedCareer(id);
       allow list: if admin();
       allow create, update, delete: if admin();
-      // Crear el primer perfil de administrador manualmente en la consola
-      // con permisos de propietario; nunca habilitar auto-asignacion de roles.
-    }
-    match /carreras/{id}{
-      allow get: if active() && (admin() || (coordinator() && profile().carreraId == id));
-      allow list: if admin();
-      allow write: if admin();
     }
     match /materias/{id}{
-      allow read: if active() && allowedCareer(resource.data.carreraId);
-      allow write: if admin();
+      allow read: if allowedCareer(resource.data.carreraId);
+      allow create, update, delete: if admin();
     }
     match /pea_base/{id}{
-      allow read: if active() && allowedCareer(resource.data.carreraId);
-      allow write: if admin();
+      allow read: if allowedCareer(resource.data.carreraId);
+      allow create, update, delete: if admin();
     }
     match /pea_unidades/{id}{
-      allow read: if active() && allowedCareer(resource.data.carreraId);
-      allow write: if admin();
+      allow read: if allowedCareer(resource.data.carreraId);
+      allow create, update, delete: if admin();
     }
     match /pea_actividades/{id}{
-      allow read: if active() && allowedCareer(resource.data.carreraId);
-      allow write: if admin();
+      allow read: if allowedCareer(resource.data.carreraId);
+      allow create, update, delete: if admin();
     }
     match /solicitudes_curriculares/{id}{
-      allow read: if active() && allowedCareer(resource.data.carreraId);
-      allow create: if active()
-        && allowedCareer(request.resource.data.carreraId)
+      allow read: if allowedCareer(resource.data.carreraId);
+      allow create: if allowedCareer(request.resource.data.carreraId)
+        && request.resource.data.keys().hasAll(["carreraId","materiaId","creadaPor","estado","cambios","motivo"])
         && request.resource.data.creadaPor == request.auth.uid
         && request.resource.data.estado == "pendiente"
         && request.resource.data.cambios is list
         && request.resource.data.cambios.size() > 0
         && request.resource.data.cambios.size() <= 100
         && request.resource.data.materiaId is string
+        && exists(/databases/$(database)/documents/materias/$(request.resource.data.materiaId))
         && get(/databases/$(database)/documents/materias/$(request.resource.data.materiaId)).data.carreraId == request.resource.data.carreraId
         && request.resource.data.motivo is string
         && request.resource.data.motivo.size() >= 15;
-      allow update: if admin() && resource.data.estado == "pendiente"
-        && request.resource.data.carreraId == resource.data.carreraId
-        && request.resource.data.materiaId == resource.data.materiaId
-        && request.resource.data.estado in ["aprobada", "devuelta", "rechazada"];
+      allow update: if admin()
+        && resource.data.estado == "pendiente"
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["estado","resolucion","revisadaPor","revisadaPorEmail","resueltaEn","versionAprobada"])
+        && request.resource.data.estado in ["aprobada","devuelta","rechazada"];
       allow delete: if false;
     }
     match /materia_cambios/{id}{
-      allow read: if active() && allowedCareer(resource.data.carreraId);
+      allow read: if allowedCareer(resource.data.carreraId);
       allow create: if admin();
       allow update, delete: if false;
     }
@@ -64,7 +70,15 @@ service cloud.firestore {
       allow create: if admin();
       allow update, delete: if false;
     }
-    // IMPORTANTE: integrar cuidadosamente estas reglas con las reglas ya
-    // activas de curriculo-ddfcd. No sustituirlas sin revisar otras apps.
+    match /enlaces_curriculares/{id}{
+      // Los hashes no son públicos. Solo Firebase Functions rota o revoca.
+      allow get, list: if admin();
+      allow create, update, delete: if false;
+    }
+    match /_curriculo_intentos/{id}{
+      allow read, write: if false;
+    }
+    // Integrar estas reglas con el resto de las apps que usen este Firebase.
+    // El desplegarlas sin fusionarlas puede romper otras aplicaciones.
   }
 }
