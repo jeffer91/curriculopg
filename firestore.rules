@@ -1,0 +1,67 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn(){return request.auth != null;}
+    function profile(){return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;}
+    function active(){return signedIn() && profile().activo == true;}
+    function admin(){return active() && profile().rol == "administrador";}
+    function coordinator(){return active() && profile().rol == "coordinador";}
+    function allowedCareer(carreraId){return admin() || (coordinator() && profile().carreraId == carreraId);}
+    match /usuarios/{uid}{
+      allow get: if signedIn() && (request.auth.uid == uid || admin());
+      allow list: if admin();
+      allow create, update, delete: if admin();
+      // Crear el primer perfil de administrador manualmente en la consola
+      // con permisos de propietario; nunca habilitar auto-asignacion de roles.
+    }
+    match /carreras/{id}{
+      allow get: if active() && (admin() || (coordinator() && profile().carreraId == id));
+      allow list: if admin();
+      allow write: if admin();
+    }
+    match /materias/{id}{
+      allow read: if active() && allowedCareer(resource.data.carreraId);
+      allow write: if admin();
+    }
+    match /pea_base/{id}{
+      allow read: if active() && allowedCareer(resource.data.carreraId);
+      allow write: if admin();
+    }
+    match /pea_unidades/{id}{
+      allow read: if active() && allowedCareer(resource.data.carreraId);
+      allow write: if admin();
+    }
+    match /pea_actividades/{id}{
+      allow read: if active() && allowedCareer(resource.data.carreraId);
+      allow write: if admin();
+    }
+    match /solicitudes_curriculares/{id}{
+      allow read: if active() && allowedCareer(resource.data.carreraId);
+      allow create: if active()
+        && allowedCareer(request.resource.data.carreraId)
+        && request.resource.data.creadaPor == request.auth.uid
+        && request.resource.data.estado == "pendiente"
+        && request.resource.data.cambios is list
+        && request.resource.data.cambios.size() > 0
+        && request.resource.data.motivo is string
+        && request.resource.data.motivo.size() >= 15;
+      allow update: if admin() && resource.data.estado == "pendiente"
+        && request.resource.data.carreraId == resource.data.carreraId
+        && request.resource.data.materiaId == resource.data.materiaId
+        && request.resource.data.estado in ["aprobada", "devuelta", "rechazada"];
+      allow delete: if false;
+    }
+    match /materia_cambios/{id}{
+      allow read: if active() && allowedCareer(resource.data.carreraId);
+      allow create: if admin();
+      allow update, delete: if false;
+    }
+    match /auditoria_curricular/{id}{
+      allow read: if admin();
+      allow create: if admin();
+      allow update, delete: if false;
+    }
+    // IMPORTANTE: integrar cuidadosamente estas reglas con las reglas ya
+    // activas de curriculo-ddfcd. No sustituirlas sin revisar otras apps.
+  }
+}
