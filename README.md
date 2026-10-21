@@ -1,24 +1,63 @@
-# Currículo ITSQMET
+# Currículo ITSQMET — Gestión curricular
 
-Aplicaciones de gestión curricular publicadas en GitHub Pages y conectadas a Firebase `curriculo-ddfcd`.
+Repositorio público que despliega **dos aplicaciones** independientes en GitHub Pages:
 
 - Administrador: https://jeffer91.github.io/curriculopg/administrador/
-- Coordinador: https://jeffer91.github.io/curriculopg/coordinador/
+- Coordinador: enlace **privado diferente para cada carrera**, generado por el administrador. No basta con \`?carrera=\` sin la clave de acceso.
 
-## Instalación / publicación
-El repositorio es una aplicación estática. El flujo `.github/workflows/pages.yml` publica automáticamente la rama `main` mediante GitHub Actions. No requiere npm.
+## Acceso sin cuentas visibles
 
-## Seguridad y configuración Firebase
-Se requiere habilitar **Authentication > Email/Password**, registrar las cuentas y crear en Firestore documentos `usuarios/{uid}`:
-- Administrador: `{"rol":"administrador","activo":true}`.
-- Coordinador: `{"rol":"coordinador","carreraId":"carrera_administracion","activo":true}`.
-El ID de carrera debe ser exactamente el de la colección `carreras`.
+- **Administrador**: solo ingresa el PIN de 4 dígitos definido como secreto en Firebase. No se solicita correo ni contraseña.
+- **Coordinador**: no ingresa PIN, usuario ni contraseña; abre su enlace secreto, que contiene \`?carrera=...\#acceso=...\`.
+- El navegador intercambia el PIN o enlace mediante Firebase Cloud Functions por una sesión de Firebase Authentication con claims firmados. Los permisos se comprueban en Firestore.
+- El administrador puede generar, **renovar** (invalidando el anterior) o **revocar** enlaces desde «Carreras y enlaces».
+- Los enlaces se guardan en Firestore **solo como hashes** y se muestran completos únicamente cuando se generan. Deben copiarse en ese momento.
+- Cuando se revoca o renueva un enlace, Firestore rechaza las sesiones de la versión anterior.
+- No se almacenan secretos de administrador ni tokens de coordinador en GitHub.
 
-**IMPORTANTE**: antes de compartir accesos, revisar, combinar y publicar las reglas de seguridad de `firestore.rules` con las reglas existentes del proyecto. GitHub Pages por sí solo NO controla el acceso a los datos y los enlaces con ?carrera= NO dan permisos. No se configura ninguna cuenta privilegiada en código.
+## Activación requerida en Firebase (no se realiza al publicar en GitHub)
 
-## Flujo
-Coordinador consulta únicamente carrera autorizada > propone cambios PEA > solicitud pendiente > administrador revisa/aprueba/devuelve/rechaza > historial y versión oficial > Excel / anexo PDF.
+El repositorio aporta el backend de Firebase Functions, pero **GitHub Pages solo despliega el frontend**. Para que funcionen el PIN y los enlaces reales, se requieren los siguientes pasos de una persona con acceso autorizado al proyecto \`curriculo-ddfcd\`:
 
-La colección de solicitudes nueva es `solicitudes_curriculares`; NO se vuelve a importar la base ni se cambian los documentos existentes en el primer acceso.
+1. Firebase debe tener **Authentication** y **Firestore** habilitados. En la pestaña Authentication → Settings → Authorized domains, verificar que se admitan los dominios usados por la aplicación cuando corresponda. El acceso con token personalizado no requiere habilitar Email/Password.
+2. El proyecto debe estar en **Blaze** (facturación habilitada) para desplegar Cloud Functions de segunda generación.
+3. En una terminal con acceso al proyecto:
 
-Bibliotecas CDN: Firebase JS 11.10.0, ExcelJS 4.4.0, JSZip 3.10.1 y jsPDF 2.5.2. Se necesita conexión a internet.
+   \`\`\`bash
+   npm install -g firebase-tools
+   firebase login
+   firebase use curriculo-ddfcd
+   npm install --prefix functions
+   firebase functions:secrets:set CURRICULO_ADMIN_PIN
+   # Al solicitar el valor, introducir el PIN aprobado por el administrador.
+   firebase deploy --only functions
+   \`\`\`
+
+4. Revisar las reglas actualmente publicadas en **Firestore → Rules**. Integrar las condiciones del archivo \`firestore.rules\` **sin borrar las reglas de otras aplicaciones** que compartan Firebase. Publicar las reglas ya fusionadas desde la consola, o mediante \`firebase deploy --only firestore:rules\` únicamente cuando el archivo incluya todas las reglas necesarias para el proyecto.
+5. Si Firebase Admin muestra un problema al generar tokens, revisar permisos de la cuenta de servicio de las funciones; puede requerir el rol Service Account Token Creator para firmar tokens.
+
+**No existe un PIN en JavaScript:** el secreto debe configurarse explícitamente en Firebase Secret Manager. No subas el PIN ni credenciales de Firebase a este repositorio público.
+
+## Cómo configurar las carreras
+
+1. Entrar a \`/administrador/\` con PIN después de desplegar Functions y reglas.
+2. Entrar a «Carreras y enlaces».
+3. Generar el enlace privado de cada carrera.
+4. Copiar y entregar ese enlace al coordinador de la carrera, por un canal reservado.
+5. Si se filtra o deja de ser válido, renovarlo o revocarlo desde el panel.
+
+Quien posea un enlace tiene capacidad de actuar como coordinador de esa carrera. El sistema registra el **enlace de carrera** como actor, no la identidad personal del individuo que lo utiliza. Si necesitas identificar a cada docente individualmente, hará falta algún mecanismo de identificación adicional.
+
+## Módulos disponibles
+
+- Consulta de carreras, materias, PEA Base, unidades y actividades.
+- Propuestas de cambios y comparación antes/después.
+- Validación y aprobación administrativa que actualiza la versión oficial mediante transacción.
+- Descarga de los tres PEA en Excel (ZIP) y anexo modificatorio en PDF.
+- Estadísticas de carreras, asignaturas, solicitudes e historial.
+
+## Publicación y pruebas
+
+El flujo \`.github/workflows/pages.yml\` despliega la rama \`main\` en GitHub Pages y verifica sintaxis JS de \`assets/app.js\`. Las Cloud Functions no se despliegan en ese flujo porque requieren privilegios de un propietario de Firebase.
+
+Se recomienda probar con una carrera de prueba antes de aprobar cambios sobre información curricular real. El respaldo curricular original no se importa ni se altera al instalar esta interfaz.
