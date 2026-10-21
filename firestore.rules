@@ -43,6 +43,9 @@ service cloud.firestore {
         && request.resource.data.estado == "pendiente"
         && request.resource.data.cambios is list
         && request.resource.data.cambios.size() > 0
+        && request.resource.data.cambios.size() <= 100
+        && request.resource.data.materiaId is string
+        && get(/databases/$(database)/documents/materias/$(request.resource.data.materiaId)).data.carreraId == request.resource.data.carreraId
         && request.resource.data.motivo is string
         && request.resource.data.motivo.size() >= 15;
       allow update: if admin() && resource.data.estado == "pendiente"
