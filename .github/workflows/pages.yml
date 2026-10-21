@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Verificar sintaxis JavaScript
+        run: node --check assets/app.js
       - name: Configurar Pages
         uses: actions/configure-pages@v5
       - name: Subir sitio
