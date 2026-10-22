@@ -2,11 +2,11 @@
 /** Acceso curricular. El PIN y los enlaces se comprueban solo en Firebase Functions. */
 const crypto = require("node:crypto");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-const { defineSecret } = require("firebase-functions/params");
+
 const admin = require("firebase-admin");
 admin.initializeApp();
 const db = admin.firestore();
-const secretPin = defineSecret("CURRICULO_ADMIN_PIN");
+const ADMIN_PIN = "5626"; // Valor solicitado. Repositorio publico: NO es un secreto.
 const REGION = "us-central1";
 const sha = value => crypto.createHash("sha256").update(value).digest("hex");
 const sameHash = (left,right) => /^[a-f0-9]{64}$/.test(right||"") && crypto.timingSafeEqual(Buffer.from(sha(left),"hex"),Buffer.from(right,"hex"));
@@ -31,12 +31,11 @@ async function attempts(kind,request,limit,interval){
   });
   if(!result)fail("resource-exhausted","Demasiados intentos. Intenta de nuevo después del periodo de bloqueo.");
 }
-exports.ingresarAdmin = onCall({...cfg,secrets:[secretPin]},async request=>{
+exports.ingresarAdmin = onCall(cfg,async request=>{
   await attempts("pin-admin",request,5,30*60*1000);
   const pin=request.data?.pin;
   if(typeof pin!=="string" || !/^\d{4}$/.test(pin))fail("invalid-argument","Introduce un PIN de cuatro dígitos.");
-  const configured=secretPin.value();
-  if(!/^\d{4}$/.test(configured))fail("failed-precondition","La clave administrativa no se configuró en Firebase Secret Manager.");
+  const configured=ADMIN_PIN;
   const match=crypto.timingSafeEqual(Buffer.from(pin),Buffer.from(configured));
   if(!match)fail("permission-denied","PIN incorrecto.");
   return {token:await admin.auth().createCustomToken("curriculo-admin-pin",{rol:"administrador"})};
