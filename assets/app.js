@@ -76,6 +76,7 @@ async function initUser(user){
     if(denial){await signOut(auth);loginScreen(denial);return;}
     s.user=user;s.perfil=profile;await load();s.view="inicio";render();
   }catch(err){
+    if(mode==="administrador" && s.pinEntered){s.localPreview=true;s.loginIssue="No se pudieron cargar los datos de Firebase: "+String(err?.code||err?.message||err)+". Revisa las reglas de seguridad y las funciones publicadas.";localAdminDashboard();return;}
     root.innerHTML="<div class='auth-wrap'><div class='auth-card'><h2>No se pudo iniciar</h2>"+alertBox(err?.message||String(err),"error")+"<p>Comprueba las funciones de acceso y las reglas de Firestore.</p><button class='btn' data-act='logout'>Cerrar sesión</button></div></div>";
   }
 }
