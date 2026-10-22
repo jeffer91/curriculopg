@@ -7,9 +7,9 @@ Repositorio público que despliega **dos aplicaciones** independientes en GitHub
 
 ## Acceso sin cuentas visibles
 
-- **Administrador**: solo ingresa el PIN de 4 dígitos definido como secreto en Firebase. No se solicita correo ni contraseña.
+- **Administrador**: solo ingresa el PIN `5626` definido en el código. No se solicita correo ni contraseña. Si las funciones no están desplegadas, se abre una vista local de configuración, **sin acceder a los datos de Firebase**.
 - **Coordinador**: no ingresa PIN, usuario ni contraseña; abre su enlace secreto, que contiene \`?carrera=...\#acceso=...\`.
-- El navegador intercambia el PIN o enlace mediante Firebase Cloud Functions por una sesión de Firebase Authentication con claims firmados. Los permisos se comprueban en Firestore.
+- El navegador comprueba localmente el PIN para habilitar la vista y, si las funciones están desplegadas, solicita una sesión de Firebase Authentication con claims firmados. Los permisos de lectura y escritura se comprueban en Firestore.
 - El administrador puede generar, **renovar** (invalidando el anterior) o **revocar** enlaces desde «Carreras y enlaces».
 - Los enlaces se guardan en Firestore **solo como hashes** y se muestran completos únicamente cuando se generan. Deben copiarse en ese momento.
 - Cuando se revoca o renueva un enlace, Firestore rechaza las sesiones de la versión anterior.
@@ -28,15 +28,14 @@ El repositorio aporta el backend de Firebase Functions, pero **GitHub Pages solo
    firebase login
    firebase use curriculo-ddfcd
    npm install --prefix functions
-   firebase functions:secrets:set CURRICULO_ADMIN_PIN
-   # Al solicitar el valor, introducir el PIN aprobado por el administrador.
+   # El PIN ya está definido en functions/index.js.
    firebase deploy --only functions
    \`\`\`
 
 4. Revisar las reglas actualmente publicadas en **Firestore → Rules**. Integrar las condiciones del archivo \`firestore.rules\` **sin borrar las reglas de otras aplicaciones** que compartan Firebase. Publicar las reglas ya fusionadas desde la consola, o mediante \`firebase deploy --only firestore:rules\` únicamente cuando el archivo incluya todas las reglas necesarias para el proyecto.
 5. Si Firebase Admin muestra un problema al generar tokens, revisar permisos de la cuenta de servicio de las funciones; puede requerir el rol Service Account Token Creator para firmar tokens.
 
-**No existe un PIN en JavaScript:** el secreto debe configurarse explícitamente en Firebase Secret Manager. No subas el PIN ni credenciales de Firebase a este repositorio público.
+**Advertencia de seguridad:** el PIN `5626` está escrito en el JavaScript público y en el código de Functions. Cualquier persona puede encontrarlo al consultar el repositorio. Por eso, el acceso local NO concede permiso sobre Firestore; solo las reglas y el servidor controlan los datos reales. Cambia a un secreto de servidor antes de usar información sensible en producción.
 
 ## Cómo configurar las carreras
 
