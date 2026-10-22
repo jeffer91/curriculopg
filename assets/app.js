@@ -8,7 +8,7 @@ const firebase=initializeApp(cfg),auth=getAuth(firebase),db=getFirestore(firebas
 const mode=document.body.dataset.mode;
 const root=document.getElementById("app");
 const wanted=new URLSearchParams(location.search).get("carrera");
-const s={user:null,perfil:null,carreras:[],materias:[],solicitudes:[],view:"inicio",term:"",detail:null,request:null,busy:false,toast:"",error:"",generatedLink:null,loggedOut:false,localPreview:false,pinEntered:false,loginIssue:""};
+const s={user:null,perfil:null,carreras:[],materias:[],solicitudes:[],view:"inicio",term:"",detail:null,request:null,busy:false,toast:"",error:"",generatedLink:null,loggedOut:false,localPreview:false,pinEntered:false,loginIssue:"",diagnostic:null};
 const e=x=>String(x??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;");
 const val=x=>String(x??"");
 const clone=x=>JSON.parse(JSON.stringify(x));
@@ -34,7 +34,27 @@ function loginScreen(message=""){
 }
 function localAdminDashboard(){
   const code=s.loginIssue||"El servicio de acceso todavía no responde.";
-  root.innerHTML="<div class='app-shell'><aside class='sidebar'><div class='brand'>ITSQMET<small>Gestión curricular</small></div><div class='navitem active'>◫ Administración</div><div class='side-bottom'>Acceso local con PIN<br><br>"+btn("logout-local","Salir","btn-small")+"</div></aside><main class='main'><header class='topbar'><div><h1>Panel del administrador</h1><p class='muted'>PIN correcto · Acceso a la interfaz</p></div><span class='pill'>Vista local</span></header><div class='notice warning'><strong>Acceso a la pantalla concedido, pero los datos institucionales no están conectados.</strong><p>El PIN se comprobó en el código de GitHub Pages. Para consultar carreras, aprobar cambios o generar enlaces debe estar publicada la función de Firebase que emite la sesión autorizada.</p></div><section class='panel'><h2>Estado de conexión</h2>"+alertBox(code,"error")+"<div class='btn-row'>"+btn("retry-server","Reintentar conexión con Firebase","btn-primary")+btn("logout-local","Cerrar sesión")+"</div><p class='muted tiny'>La base curricular no se ha modificado. No se muestran estadísticas inventadas ni se habilitan operaciones sin autorización real.</p><p><a class='link' href='https://github.com/jeffer91/curriculopg/blob/main/README.md' target='_blank' rel='noopener noreferrer'>Instrucciones de activación</a></p></section></main></div>";
+  const checks=s.diagnostic;
+  const report=checks?(checks.error
+    ?alertBox("No se pudo ejecutar el diagnóstico: "+checks.error+" La función puede no estar desplegada o no responder.","error")
+    :"<div class='section-card'><h3>Comprobaciones del servidor</h3>"+
+       "<p>Función de diagnóstico: <strong>"+e(checks.funcion||"—")+"</strong></p>"+
+       "<p>Acceso a Firestore: <strong>"+e(checks.firestore||"—")+"</strong></p>"+
+       "<p>Permiso para emitir sesión: <strong>"+e(checks.firmaTokens||"—")+"</strong></p>"+
+       (checks.firmaTokens==="error"?alertBox("Revisa IAM: la cuenta de servicio de Cloud Functions necesita permisos para firmar tokens (iam.serviceAccounts.signBlob).","warning"):"")+
+       (checks.firestore==="error"?alertBox("Revisa que Firestore esté habilitado y que la cuenta de servicio tenga los permisos de lectura necesarios.","warning"):"")+
+     "</div>"):"<p class='muted tiny'>Ejecuta el diagnóstico para identificar qué servicio falla.</p>";
+  root.innerHTML="<div class='app-shell'><aside class='sidebar'><div class='brand'>ITSQMET<small>Gestión curricular</small></div><div class='navitem active'>◫ Administración</div><div class='side-bottom'>Vista local con PIN<br><br>"+btn("logout-local","Salir","btn-small")+"</div></aside><main class='main'><header class='topbar'><div><h1>Panel del administrador</h1><p class='muted'>PIN aceptado, conexión institucional pendiente</p></div><span class='pill'>Diagnóstico</span></header><div class='notice warning'><strong>El panel de administración requiere una sesión validada por Firebase.</strong><p>El PIN está correcto, pero todavía no se puede consultar ni modificar información curricular. No habilitaremos escrituras inseguras.</p></div><section class='panel'><h2>Estado de Firebase</h2>"+alertBox(code,"error")+report+"<div class='btn-row'>"+btn("diagnose-server","Diagnosticar Firebase")+btn("retry-server","Reintentar conexión","btn-primary")+btn("logout-local","Cerrar sesión")+"</div><p class='muted tiny'>Diagnóstico de solo lectura; no modifica carreras, materias ni PEA.</p><p><a class='link' href='https://console.firebase.google.com/project/curriculo-ddfcd/functions' target='_blank' rel='noopener noreferrer'>Funciones del proyecto Firebase</a> · <a class='link' href='https://github.com/jeffer91/curriculopg/blob/main/README.md' target='_blank' rel='noopener noreferrer'>Instrucciones de activación</a></p></section></main></div>";
+}
+async function diagnoseConnection(){
+  s.diagnostic=null;
+  try{
+    const result=await httpsCallable(functions,"diagnosticarCurriculo",{timeout:20000})({pin:"5626"});
+    s.diagnostic=result.data;
+  }catch(err){
+    s.diagnostic={error:String(err?.code||err?.message||"Error del servidor")};
+  }
+  if(s.localPreview)localAdminDashboard();
 }
 async function signInAdmin(pin){
   if(pin!=="5626")throw Error("PIN incorrecto.");
@@ -45,7 +65,7 @@ async function signInAdmin(pin){
     await signInWithCustomToken(auth,response.data.token);
   }catch(err){
     s.localPreview=true;
-    s.loginIssue="Firebase todavía no autorizó la conexión: "+String(err?.code||err?.message||"error de conexión")+".";
+    s.loginIssue="Firebase no completó la sesión administrativa: "+String(err?.code||err?.message||"error de conexión")+".";
     localAdminDashboard();
   }
 }
@@ -133,7 +153,8 @@ async function exportRequest(){const r=s.request;if(!r)return;try{await openMatt
 async function pdfAnnex(){const r=s.request;if(!r)return;try{if(!window.jspdf?.jsPDF)throw Error("No se pudo cargar la biblioteca para crear PDF.");const pdf=new window.jspdf.jsPDF({unit:"mm",format:"a4"}),margin=17,width=176;let y=19;const next=(text,style="normal",sz=10)=>{pdf.setFont("helvetica",style);pdf.setFontSize(sz);const lines=pdf.splitTextToSize(val(text),width);for(const ln of lines){if(y>275){pdf.addPage();y=19;}pdf.text(ln,margin,y);y+=sz*.43+2;}y+=2;};next("INSTITUTO SUPERIOR TECNOLOGICO QUITO METROPOLITANO","bold",11);next("ANEXO MODIFICATORIO DEL PEA","bold",17);next("Solicitud: "+r.id);next("Estado: "+r.estado.toUpperCase()+(r.estado!=="aprobada"?" (SIN APROBACION DEFINITIVA)":""));next("Carrera: "+r.carreraNombre);next("Asignatura: "+r.materiaNombre+" · Nivel "+r.nivelNumero);next("Solicitante: "+r.creadaPorEmail);next("Fecha: "+fmtDate(r.creadaEn));next("Version de partida: "+r.versionBase+"; version autorizada: "+(r.versionAprobada||"pendiente"));next("JUSTIFICACION","bold",12);next(r.motivo);for(let i=0;i<(r.cambios||[]).length;i++){const d=r.cambios[i];next((i+1)+". "+d.etiqueta,"bold",11);next("TEXTO ANTERIOR","bold",9);next(d.antes);next("TEXTO PROPUESTO","bold",9);next(d.despues);}next("RESOLUCION","bold",12);next(r.resolucion||"Pendiente de revision y aprobacion por el administrador");next("Administrador: "+(r.revisadaPorEmail||"Pendiente"));next("Fecha de resolucion: "+fmtDate(r.resueltaEn));next("Este documento es un registro electronico. Su validez depende de su estado de aprobacion en Firebase.");pdf.save("Anexo_modificatorio_"+cleanFilename(r.materiaNombre)+"_"+r.estado+".pdf");}catch(err){showError(err);}}
 root.addEventListener("submit",async event=>{if(event.target.id==="login"){event.preventDefault();const f=new FormData(event.target);const button=event.target.querySelector("button");button.disabled=true;try{const pin=val(f.get("pin"));if(!/^\d{4}$/.test(pin))throw Error("Ingresa cuatro dígitos.");await signInAdmin(pin);}catch(err){loginScreen("No se pudo iniciar sesión: "+(err?.message||err));}finally{button.disabled=false;}}else if(event.target.id==="editor-form"){event.preventDefault();await submitEdit(event.target);}});
 root.addEventListener("input",event=>{if(event.target.id==="search-mat"){s.term=event.target.value;const pos=event.target.selectionStart;render();const input=document.getElementById("search-mat");if(input){input.focus();input.setSelectionRange(pos,pos);}}});
-root.addEventListener("click",async event=>{const b=event.target.closest("[data-act]");if(!b)return;const a=b.dataset.act,id=b.dataset.id;s.error="";s.toast="";if(a==="view"){s.view=id;render();}else if(a==="materia")await openMatter(id);else if(a==="request")openRequest(id);else if(a==="logout-local"){s.localPreview=false;s.pinEntered=false;s.loginIssue="";s.loggedOut=true;loginScreen();}
+root.addEventListener("click",async event=>{const b=event.target.closest("[data-act]");if(!b)return;const a=b.dataset.act,id=b.dataset.id;s.error="";s.toast="";if(a==="view"){s.view=id;render();}else if(a==="materia")await openMatter(id);else if(a==="request")openRequest(id);else if(a==="logout-local"){s.localPreview=false;s.pinEntered=false;s.loginIssue="";s.diagnostic=null;s.loggedOut=true;loginScreen();}
 else if(a==="retry-server"){s.localPreview=false;await signInAdmin("5626");}
+else if(a==="diagnose-server")await diagnoseConnection();
 else if(a==="logout"){s.loggedOut=true;await signOut(auth);}else if(a==="resolve")await resolve(id);else if(a==="pdf")await pdfAnnex();else if(a==="export-current")await exportCurrent();else if(a==="export-request")await exportRequest();else if(a==="issue-link")await issueLink(id);else if(a==="revoke-link")await revokeLink(id);else if(a==="copy-generated"){try{await navigator.clipboard.writeText(s.generatedLink||"");toast("Enlace exclusivo copiado.");}catch{showError("Selecciona el enlace y cópialo manualmente.");}}});
 setPersistence(auth,inMemoryPersistence).then(()=>onAuthStateChanged(auth,initUser)).catch(err=>loginScreen("No se pudo inicializar la sesión: "+err.message));
